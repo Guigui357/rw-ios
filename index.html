@@ -518,6 +518,8 @@
             log('   window.write32(addr, val) - escreve 4 bytes', 'rw');
             log('   window.readBuffer(addr, len) - lê buffer', 'rw');
             log('   window.writeBuffer(addr, data) - escreve buffer', 'rw');
+            log('   redirecionando corruptedview pra window._rwview...', 'rw');
+            let window._rwView = corruptedView;
             return true;
         } catch(e) {
             log('   ❌ Erro na construção R/W: ' + e.message, 'error');
